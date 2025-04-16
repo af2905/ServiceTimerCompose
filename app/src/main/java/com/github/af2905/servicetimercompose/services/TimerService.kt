@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
@@ -18,23 +19,24 @@ class TimerService : Service() {
     private var seconds = 0
     private val notificationId = 1
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createNotificationChannel()
-        startForeground(1, buildNotification(seconds))
-        startTimer()
-        return START_STICKY
+    private val binder = LocalBinder()
+
+    inner class LocalBinder : Binder() {
+        fun getService(): TimerService = this@TimerService
     }
 
+    override fun onBind(intent: Intent?): IBinder {
+        return binder
+    }
 
-    private fun startTimer() {
+    fun startTimer() {
+        createNotificationChannel()
+        startForeground(notificationId, buildNotification(seconds))
+
         timerJob = serviceScope.launch {
             while (isActive) {
                 delay(1000)
                 seconds++
-
-                val broadcastIntent = Intent("TIMER_UPDATED")
-                broadcastIntent.putExtra("time", seconds)
-                sendBroadcast(broadcastIntent)
 
                 val notification = buildNotification(seconds)
                 val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -43,11 +45,22 @@ class TimerService : Service() {
         }
     }
 
+    fun stopTimer() {
+        timerJob?.cancel()
+        resetTimer()
+
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.cancel(notificationId)
+    }
+
+
+    fun getSeconds(): Int = seconds
+
+    fun isTimerRunning(): Boolean = timerJob?.isActive == true
+
     private fun resetTimer() {
         seconds = 0
-        val resetIntent = Intent("TIMER_UPDATED")
-        resetIntent.putExtra("time", seconds)
-        sendBroadcast(resetIntent)
     }
 
     override fun onDestroy() {
@@ -56,7 +69,12 @@ class TimerService : Service() {
         resetTimer()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onUnbind(intent: Intent?): Boolean {
+        stopTimer()
+        stopSelf()
+        return super.onUnbind(intent)
+    }
+
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(

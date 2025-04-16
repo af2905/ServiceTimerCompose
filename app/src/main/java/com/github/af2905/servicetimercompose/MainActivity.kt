@@ -1,9 +1,7 @@
 package com.github.af2905.servicetimercompose
 
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -29,31 +27,54 @@ import androidx.compose.ui.unit.dp
 import com.github.af2905.servicetimercompose.services.TimerService
 import com.github.af2905.servicetimercompose.ui.theme.ServiceTimerComposeTheme
 import android.Manifest
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private var timerReceiver: BroadcastReceiver? = null
+
+    private var timerService: TimerService? = null
+    private var isBound = false
+
     private val timerState = mutableIntStateOf(0)
 
-    private lateinit var timerServiceIntent: Intent
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as? TimerService.LocalBinder
+            timerService = binder?.getService()
+            isBound = true
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            timerService = null
+            isBound = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        timerServiceIntent = Intent(this, TimerService::class.java)
-
-        registerTimerReceiver()
-
         requestNotificationPermissionIfNeeded()
+
+        val intent = Intent(this, TimerService::class.java)
+        bindService(intent, connection, Context.BIND_AUTO_CREATE)
 
         setContent {
             ServiceTimerComposeTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize()
-                ) { innerPadding ->
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     TimerScreen(
                         time = timerState.intValue,
-                        onStart = { startService(timerServiceIntent) },
-                        onStop = { stopService(timerServiceIntent) },
+                        onStart = {
+                            timerService?.startTimer()
+                            observeTimer()
+                        },
+                        onStop = {
+                            timerService?.stopTimer()
+                            timerState.intValue = 0
+                        },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -61,22 +82,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun registerTimerReceiver() {
-        val filter = IntentFilter("TIMER_UPDATED")
-        timerReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val time = intent?.getIntExtra("time", 0) ?: 0
-                timerState.intValue = time
+    private fun observeTimer() {
+        lifecycleScope.launch {
+            while (isBound && timerService?.isTimerRunning() == true) {
+                timerState.intValue = timerService?.getSeconds() ?: 0
+                delay(1000)
             }
         }
-        val flag = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
-        registerReceiver(timerReceiver, filter, flag)
-
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(timerReceiver)
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -86,7 +106,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
 }
 
 @Composable
