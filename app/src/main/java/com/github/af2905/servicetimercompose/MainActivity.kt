@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.github.af2905.servicetimercompose.services.TimerService
 import com.github.af2905.servicetimercompose.ui.theme.ServiceTimerComposeTheme
+import android.Manifest
 
 class MainActivity : ComponentActivity() {
     private var timerReceiver: BroadcastReceiver? = null
@@ -40,6 +42,8 @@ class MainActivity : ComponentActivity() {
         timerServiceIntent = Intent(this, TimerService::class.java)
 
         registerTimerReceiver()
+
+        requestNotificationPermissionIfNeeded()
 
         setContent {
             ServiceTimerComposeTheme {
@@ -74,6 +78,15 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         unregisterReceiver(timerReceiver)
     }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            }
+        }
+    }
+
 }
 
 @Composable
